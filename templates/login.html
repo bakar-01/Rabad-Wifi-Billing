@@ -1,0 +1,19 @@
+{% extends "layout.html" %}
+{% block title %}Sign in{% endblock %}
+{% block content %}
+<section class="auth-shell">
+  <form class="auth-card" method="post" action="{% url 'login' %}">
+    {% csrf_token %}
+    <h1>Sign in</h1>
+    {{ form.non_field_errors }}
+    <label>Email
+      <input type="email" name="username" placeholder="you@example.com" required>
+    </label>
+    <label>Password
+      <input type="password" name="password" required>
+    </label>
+    <button class="primary" type="submit">Sign in</button>
+    <p>Admin demo: admin@wifi.local / admin123</p>
+  </form>
+</section>
+{% endblock %}

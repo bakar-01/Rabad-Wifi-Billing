@@ -1,0 +1,28 @@
+{% if purchases %}
+  <table>
+    <thead>
+      <tr>
+        <th>Phone</th>
+        <th>Package</th>
+        <th>Amount</th>
+        <th>Status</th>
+        <th>Access code</th>
+        <th>Created</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for purchase in purchases %}
+        <tr>
+          <td>{{ purchase.phone }}</td>
+          <td>{{ purchase.package.name }}</td>
+          <td>KES {{ purchase.amount }}</td>
+          <td><span class="pill {{ purchase.status }}">{{ purchase.get_status_display }}</span></td>
+          <td>{{ purchase.access_code }}</td>
+          <td>{{ purchase.created_at|date:"Y-m-d H:i" }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="empty">No purchases yet.</div>
+{% endif %}

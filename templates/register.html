@@ -1,0 +1,32 @@
+{% extends "layout.html" %}
+{% block title %}Create account{% endblock %}
+{% block content %}
+<section class="auth-shell">
+  <form class="auth-card" method="post" action="{% url 'register' %}">
+    {% csrf_token %}
+    <h1>Create account</h1>
+    {{ form.non_field_errors }}
+    <label>Name
+      <input name="first_name" value="{{ form.first_name.value|default:'' }}" placeholder="Customer name" required>
+      {{ form.first_name.errors }}
+    </label>
+    <label>Email
+      <input type="email" name="email" value="{{ form.email.value|default:'' }}" placeholder="you@example.com" required>
+      {{ form.email.errors }}
+    </label>
+    <label>Phone
+      <input name="phone" value="{{ form.phone.value|default:'' }}" placeholder="0712 345 678" required>
+      {{ form.phone.errors }}
+    </label>
+    <label>Password
+      <input type="password" name="password1" minlength="6" required>
+      {{ form.password1.errors }}
+    </label>
+    <label>Confirm password
+      <input type="password" name="password2" minlength="6" required>
+      {{ form.password2.errors }}
+    </label>
+    <button class="primary" type="submit">Create account</button>
+  </form>
+</section>
+{% endblock %}

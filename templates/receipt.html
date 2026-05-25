@@ -1,0 +1,19 @@
+{% extends "layout.html" %}
+{% block title %}Purchase Receipt{% endblock %}
+{% block content %}
+<section class="receipt">
+  <div>
+    <p class="eyebrow">Purchase status</p>
+    <h1>{{ purchase.package.name }}</h1>
+    <p class="receipt-status {{ purchase.status }}">{{ purchase.get_status_display }}</p>
+  </div>
+  <dl>
+    <div><dt>Phone</dt><dd>{{ purchase.phone }}</dd></div>
+    <div><dt>Amount</dt><dd>KES {{ purchase.amount }}</dd></div>
+    <div><dt>Access code</dt><dd>{{ purchase.access_code }}</dd></div>
+    <div><dt>Expires</dt><dd>{{ purchase.expires_at|default:"Waiting for M-Pesa confirmation" }}</dd></div>
+    <div><dt>M-Pesa checkout</dt><dd>{{ purchase.checkout_request_id }}</dd></div>
+  </dl>
+  <a class="primary as-link" href="{% url 'home' %}">Buy another package</a>
+</section>
+{% endblock %}

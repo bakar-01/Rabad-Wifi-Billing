@@ -1,0 +1,47 @@
+{% extends "layout.html" %}
+{% block title %}WiFi Packages{% endblock %}
+{% block content %}
+<section class="hero">
+  <div class="hero-copy">
+    <p class="eyebrow">Fast hotspot billing</p>
+    <h1>Sell WiFi access in seconds.</h1>
+    <p>Customers choose a package, enter a phone number, and receive an M-Pesa prompt. No account required.</p>
+  </div>
+  <form class="purchase-panel" method="post" action="{% url 'buy' %}">
+    {% csrf_token %}
+    <div class="panel-title">
+      <span>Buy package</span>
+      <strong>M-Pesa</strong>
+    </div>
+    <div class="packages">
+      {% for package in packages %}
+        <label class="package-card">
+          <input type="radio" name="package" value="{{ package.id }}" {% if forloop.first %}checked{% endif %}>
+          <span class="package-top"><strong>{{ package.name }}</strong><b>KES {{ package.price }}</b></span>
+          <span>{{ package.speed }} • {{ package.duration_hours }} hours</span>
+          <small>{{ package.description }}</small>
+        </label>
+      {% endfor %}
+    </div>
+    <label>Safaricom phone number
+      <input name="phone" value="{{ form.phone.value|default:'' }}" placeholder="0712 345 678" required>
+    </label>
+    <button class="primary" type="submit">Pay with M-Pesa</button>
+    <p class="fineprint">Guest purchases are supported. Sign in only if you want a reusable dashboard.</p>
+  </form>
+</section>
+<section class="bands">
+  <div>
+    <strong>1</strong>
+    <span>Select package</span>
+  </div>
+  <div>
+    <strong>2</strong>
+    <span>Confirm STK Push</span>
+  </div>
+  <div>
+    <strong>3</strong>
+    <span>Use access code</span>
+  </div>
+</section>
+{% endblock %}

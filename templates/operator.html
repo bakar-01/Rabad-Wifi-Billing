@@ -1,0 +1,16 @@
+{% extends "layout.html" %}
+{% block title %}Operator Dashboard{% endblock %}
+{% block content %}
+<section class="page-head">
+  <p class="eyebrow">Operator dashboard</p>
+  <h1>Payments and access codes</h1>
+</section>
+<section class="metrics">
+  <div><span>Total sales</span><strong>{{ metrics.total|default:0 }}</strong></div>
+  <div><span>Revenue</span><strong>KES {{ metrics.revenue|default:0 }}</strong></div>
+  <div><span>Pending</span><strong>{{ metrics.pending|default:0 }}</strong></div>
+</section>
+<section class="table-wrap">
+  {% include "partials/purchases_table.html" with purchases=purchases %}
+</section>
+{% endblock %}

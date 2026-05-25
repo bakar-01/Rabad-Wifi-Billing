@@ -1,0 +1,11 @@
+{% extends "layout.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<section class="page-head">
+  <p class="eyebrow">Customer dashboard</p>
+  <h1>Your WiFi purchases</h1>
+</section>
+<section class="table-wrap">
+  {% include "partials/purchases_table.html" with purchases=purchases %}
+</section>
+{% endblock %}
