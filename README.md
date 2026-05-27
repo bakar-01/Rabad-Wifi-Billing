@@ -24,7 +24,24 @@ Default admin:
 
 ## M-Pesa setup
 
-Set these environment variables before starting the app:
+Create a local `.env` file in the project root:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Then set your M-Pesa values in `.env`:
+
+```env
+MPESA_ENV=sandbox
+MPESA_CONSUMER_KEY=your-consumer-key
+MPESA_CONSUMER_SECRET=your-consumer-secret
+MPESA_SHORTCODE=174379
+MPESA_PASSKEY=your-passkey
+MPESA_CALLBACK_URL=https://your-domain.example/mpesa/callback/
+```
+
+Or set them in PowerShell before starting the app:
 
 ```powershell
 $env:MPESA_ENV="sandbox"
@@ -33,7 +50,7 @@ $env:MPESA_CONSUMER_SECRET="your-consumer-secret"
 $env:MPESA_SHORTCODE="174379"
 $env:MPESA_PASSKEY="your-passkey"
 $env:MPESA_CALLBACK_URL="https://your-domain.example/mpesa/callback"
-python app.py
+python manage.py runserver
 ```
 
 Without those values, purchases are simulated and activated immediately so you can test the complete flow locally.
