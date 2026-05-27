@@ -11,13 +11,7 @@ A Django WiFi billing system with:
 ## Run
 
 ```powershell
-python manage.py migrate
-python manage.py runserver
-```
 
-Open http://127.0.0.1:8000.
-
-Default admin:
 
 - Email: `admin@wifi.local`
 - Password: `admin123`
@@ -41,19 +35,7 @@ MPESA_PASSKEY=your-passkey
 MPESA_CALLBACK_URL=https://your-domain.example/mpesa/callback/
 ```
 
-Or set them in PowerShell before starting the app:
 
-```powershell
-$env:MPESA_ENV="sandbox"
-$env:MPESA_CONSUMER_KEY="your-consumer-key"
-$env:MPESA_CONSUMER_SECRET="your-consumer-secret"
-$env:MPESA_SHORTCODE="174379"
-$env:MPESA_PASSKEY="your-passkey"
-$env:MPESA_CALLBACK_URL="https://your-domain.example/mpesa/callback"
-python manage.py runserver
-```
-
-Without those values, purchases are simulated and activated immediately so you can test the complete flow locally.
 
 ## Main URLs
 
