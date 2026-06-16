@@ -22,7 +22,7 @@ class Package(models.Model):
 
 class CustomerProfile(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="customer_profile")
-    phone = models.CharField(max_length=20)
+    phone = models.CharField(max_length=20, unique=True)
 
     def __str__(self) -> str:
         return f"{self.user.get_full_name() or self.user.username} - {self.phone}"

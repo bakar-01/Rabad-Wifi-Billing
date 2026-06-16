@@ -53,7 +53,7 @@ class RegisterForm(UserCreationForm):
 
     def clean_email(self) -> str:
         email = self.cleaned_data["email"].lower()
-        if User.objects.filter(username=email).exists():
+        if User.objects.filter(username__iexact=email).exists() or User.objects.filter(email__iexact=email).exists():
             raise forms.ValidationError("That email is already registered.")
         return email
 
@@ -61,6 +61,8 @@ class RegisterForm(UserCreationForm):
         phone = normalize_phone(self.cleaned_data["phone"])
         if not valid_phone(phone):
             raise forms.ValidationError("Enter a valid Safaricom phone number.")
+        if CustomerProfile.objects.filter(phone=phone).exists():
+            raise forms.ValidationError("That phone number is already registered.")
         return phone
 
     def save(self, commit: bool = True) -> User:
