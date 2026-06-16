@@ -233,7 +233,7 @@ input {
 .metrics {
   padding: 28px 6vw;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 16px;
 }
 
@@ -269,6 +269,10 @@ input {
 
 .page-head {
   padding: 44px 6vw 16px;
+}
+
+.page-head.compact {
+  padding-top: 20px;
 }
 
 .page-head h1 {
@@ -325,6 +329,11 @@ th {
 .active {
   color: var(--brand-strong);
   background: #e6f5f2;
+}
+
+.failed {
+  color: #9b2635;
+  background: #fde8ec;
 }
 
 .receipt {

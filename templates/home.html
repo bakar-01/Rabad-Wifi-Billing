@@ -3,7 +3,7 @@
 {% block content %}
 <section class="hero">
   <div class="hero-copy">
-    <p class="eyebrow"> Batutech Fast hotspot billing system</p>
+    <p class="eyebrow">Batutech Fast hotspot billing system</p>
     <h1>We Sell WiFi access in seconds.</h1>
     <p>Customers choose a package, enter a phone number, and receive an M-Pesa prompt. No account required.</p>
   </div>
@@ -18,7 +18,7 @@
         <label class="package-card">
           <input type="radio" name="package" value="{{ package.id }}" {% if forloop.first %}checked{% endif %}>
           <span class="package-top"><strong>{{ package.name }}</strong><b>KES {{ package.price }}</b></span>
-          <span>{{ package.speed }} • {{ package.duration_hours }} hours</span>
+          <span>{{ package.speed }} / {{ package.duration_hours }} hours / {{ package.profile }}</span>
           <small>{{ package.description }}</small>
         </label>
       {% endfor %}

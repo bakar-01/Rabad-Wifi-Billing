@@ -1,0 +1,25 @@
+Django==5.2.3
+djangorestframework==3.16.0
+dj-database-url==3.1.2
+python-decouple==3.8
+
+# Background tasks & message broker
+celery==5.4.0
+redis==5.0.0
+django-celery-beat==2.5.0
+
+# MikroTik RouterOS API
+routeros-api==0.18.0
+
+# SMS Notifications
+africas-talking==1.2.2
+
+# PDF Generation
+reportlab==4.0.0
+weasyprint==60.0
+
+# Excel/Data export
+openpyxl==3.11.0
+
+# Environment management
+python-dotenv==1.0.0

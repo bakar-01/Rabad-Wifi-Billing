@@ -8,12 +8,14 @@ from django.contrib.auth.forms import AuthenticationForm
 from django.db.models import Count, Q, Sum
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from .forms import PurchaseForm, RegisterForm
-from .models import Package, Purchase
+from .models import MpesaTransaction, Package, Purchase, Subscription
 from .mpesa import initiate_stk_push
+from .services import activate_purchase, fail_purchase, record_transaction
 
 
 def access_code() -> str:
@@ -45,11 +47,30 @@ def buy_package(request):
         access_code=access_code(),
     )
     result = initiate_stk_push(purchase.phone, purchase.amount, purchase.id)
-    purchase.checkout_request_id = result.get("checkout_request_id", "")
+    purchase.checkout_request_id = result.get("checkout_request_id") or f"LOCAL-{purchase.id}"
     purchase.save(update_fields=["checkout_request_id"])
+    record_transaction(
+        purchase=purchase,
+        phone_number=purchase.phone,
+        amount=purchase.amount,
+        checkout_request_id=purchase.checkout_request_id,
+        merchant_request_id=result.get("merchant_request_id", ""),
+    )
 
-    if result.get("simulated"):
-        purchase.activate(receipt=f"SIM{purchase.id:06d}")
+    if not result.get("ok"):
+        fail_purchase(purchase, result.get("message", "M-Pesa request failed."))
+        transaction = purchase.transaction
+        transaction.status = MpesaTransaction.STATUS_FAILED
+        transaction.result_description = result.get("message", "M-Pesa request failed.")
+        transaction.save(update_fields=["status", "result_description"])
+    elif result.get("simulated"):
+        transaction = purchase.transaction
+        transaction.status = MpesaTransaction.STATUS_SUCCESS
+        transaction.receipt_number = f"SIM{purchase.id:06d}"
+        transaction.result_code = 0
+        transaction.result_description = "Simulated payment accepted"
+        transaction.save(update_fields=["status", "receipt_number", "result_code", "result_description"])
+        activate_purchase(purchase, receipt=transaction.receipt_number)
     messages.success(request, result.get("message", "M-Pesa request sent."))
     return redirect("receipt", purchase_id=purchase.id)
 
@@ -68,12 +89,25 @@ def dashboard(request):
 @user_passes_test(lambda user: user.is_staff)
 def operator_dashboard(request):
     purchases = Purchase.objects.select_related("package")[:100]
+    today = timezone.localdate()
     metrics = Purchase.objects.aggregate(
         total=Count("id"),
         revenue=Sum("amount", filter=Q(status=Purchase.STATUS_ACTIVE)),
         pending=Count("id", filter=Q(status=Purchase.STATUS_PENDING)),
+        today_revenue=Sum("amount", filter=Q(status=Purchase.STATUS_ACTIVE, paid_at__date=today)),
     )
-    return render(request, "operator.html", {"purchases": purchases, "metrics": metrics})
+    active_subscriptions = Subscription.objects.select_related("package").filter(active=True)[:50]
+    transactions = MpesaTransaction.objects.select_related("purchase")[:50]
+    return render(
+        request,
+        "operator.html",
+        {
+            "purchases": purchases,
+            "metrics": metrics,
+            "active_subscriptions": active_subscriptions,
+            "transactions": transactions,
+        },
+    )
 
 
 def login_view(request):
@@ -108,18 +142,41 @@ def register_view(request):
 @csrf_exempt
 @require_POST
 def mpesa_callback(request):
-    payload = json.loads(request.body.decode() or "{}")
+    try:
+        payload = json.loads(request.body.decode() or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"ResultCode": 1, "ResultDesc": "Invalid JSON"}, status=400)
+
     stk = payload.get("Body", {}).get("stkCallback", {})
     checkout = stk.get("CheckoutRequestID")
-    result_code = stk.get("ResultCode")
-    receipt = ""
+    merchant = stk.get("MerchantRequestID", "")
+    result_code = int(stk.get("ResultCode", -1))
+    result_description = stk.get("ResultDesc", "")
+    metadata = {}
     for item in stk.get("CallbackMetadata", {}).get("Item", []):
-        if item.get("Name") == "MpesaReceiptNumber":
-            receipt = str(item.get("Value"))
-    if checkout and result_code == 0:
-        purchase = Purchase.objects.filter(checkout_request_id=checkout).select_related("package").first()
-        if purchase:
-            purchase.activate(receipt=receipt)
+        metadata[item.get("Name")] = item.get("Value")
+
+    purchase = Purchase.objects.filter(checkout_request_id=checkout).select_related("package").first()
+    transaction = MpesaTransaction.objects.filter(checkout_request_id=checkout).first()
+    if transaction:
+        transaction.merchant_request_id = merchant or transaction.merchant_request_id
+        transaction.result_code = result_code
+        transaction.result_description = result_description
+        transaction.raw_callback = payload
+        transaction.receipt_number = str(metadata.get("MpesaReceiptNumber") or transaction.receipt_number or "")
+        transaction.status = MpesaTransaction.STATUS_SUCCESS if result_code == 0 else MpesaTransaction.STATUS_FAILED
+        if metadata.get("Amount"):
+            transaction.amount = metadata["Amount"]
+        if metadata.get("PhoneNumber"):
+            transaction.phone_number = str(metadata["PhoneNumber"])
+        transaction.save()
+
+    if purchase and result_code == 0:
+        receipt = str(metadata.get("MpesaReceiptNumber") or "")
+        activate_purchase(purchase, receipt=receipt)
+    elif purchase:
+        fail_purchase(purchase, result_description)
+
     return JsonResponse({"ResultCode": 0, "ResultDesc": "Accepted"})
 
 # Create your views here.

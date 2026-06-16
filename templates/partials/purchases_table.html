@@ -6,7 +6,9 @@
         <th>Package</th>
         <th>Amount</th>
         <th>Status</th>
-        <th>Access code</th>
+        <th>Username</th>
+        <th>Password</th>
+        <th>Expires</th>
         <th>Created</th>
       </tr>
     </thead>
@@ -17,7 +19,9 @@
           <td>{{ purchase.package.name }}</td>
           <td>KES {{ purchase.amount }}</td>
           <td><span class="pill {{ purchase.status }}">{{ purchase.get_status_display }}</span></td>
-          <td>{{ purchase.access_code }}</td>
+          <td>{{ purchase.subscription.username|default:purchase.phone }}</td>
+          <td>{{ purchase.subscription.password|default:purchase.access_code }}</td>
+          <td>{{ purchase.expires_at|date:"Y-m-d H:i"|default:"-" }}</td>
           <td>{{ purchase.created_at|date:"Y-m-d H:i" }}</td>
         </tr>
       {% endfor %}

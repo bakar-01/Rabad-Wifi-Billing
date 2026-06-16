@@ -10,8 +10,10 @@
   <dl>
     <div><dt>Phone</dt><dd>{{ purchase.phone }}</dd></div>
     <div><dt>Amount</dt><dd>KES {{ purchase.amount }}</dd></div>
-    <div><dt>Access code</dt><dd>{{ purchase.access_code }}</dd></div>
+    <div><dt>Username</dt><dd>{{ purchase.subscription.username|default:purchase.phone }}</dd></div>
+    <div><dt>Password</dt><dd>{{ purchase.subscription.password|default:purchase.access_code }}</dd></div>
     <div><dt>Expires</dt><dd>{{ purchase.expires_at|default:"Waiting for M-Pesa confirmation" }}</dd></div>
+    <div><dt>Router</dt><dd>{% if purchase.subscription.router_user_created %}Provisioned{% elif purchase.status == "active" %}Pending router sync{% else %}Waiting for payment{% endif %}</dd></div>
     <div><dt>M-Pesa checkout</dt><dd>{{ purchase.checkout_request_id }}</dd></div>
   </dl>
   <a class="primary as-link" href="{% url 'home' %}">Buy another package</a>

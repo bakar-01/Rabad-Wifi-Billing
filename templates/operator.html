@@ -8,9 +8,78 @@
 <section class="metrics">
   <div><span>Total sales</span><strong>{{ metrics.total|default:0 }}</strong></div>
   <div><span>Revenue</span><strong>KES {{ metrics.revenue|default:0 }}</strong></div>
+  <div><span>Today</span><strong>KES {{ metrics.today_revenue|default:0 }}</strong></div>
   <div><span>Pending</span><strong>{{ metrics.pending|default:0 }}</strong></div>
 </section>
 <section class="table-wrap">
   {% include "partials/purchases_table.html" with purchases=purchases %}
+</section>
+<section class="page-head compact">
+  <p class="eyebrow">Active users</p>
+  <h1>Subscriptions</h1>
+</section>
+<section class="table-wrap">
+  {% if active_subscriptions %}
+    <table>
+      <thead>
+        <tr>
+          <th>Phone</th>
+          <th>Package</th>
+          <th>Username</th>
+          <th>Activated</th>
+          <th>Expires</th>
+          <th>Router</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for subscription in active_subscriptions %}
+          <tr>
+            <td>{{ subscription.phone_number }}</td>
+            <td>{{ subscription.package.name }}</td>
+            <td>{{ subscription.username }}</td>
+            <td>{{ subscription.activated_at|date:"Y-m-d H:i" }}</td>
+            <td>{{ subscription.expires_at|date:"Y-m-d H:i" }}</td>
+            <td>{% if subscription.router_user_created %}Provisioned{% else %}Pending{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="empty">No active subscriptions.</div>
+  {% endif %}
+</section>
+<section class="page-head compact">
+  <p class="eyebrow">M-Pesa</p>
+  <h1>Recent transactions</h1>
+</section>
+<section class="table-wrap">
+  {% if transactions %}
+    <table>
+      <thead>
+        <tr>
+          <th>Phone</th>
+          <th>Amount</th>
+          <th>Receipt</th>
+          <th>Status</th>
+          <th>Checkout</th>
+          <th>Date</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for transaction in transactions %}
+          <tr>
+            <td>{{ transaction.phone_number }}</td>
+            <td>KES {{ transaction.amount }}</td>
+            <td>{{ transaction.receipt_number|default:"-" }}</td>
+            <td><span class="pill {{ transaction.status|lower }}">{{ transaction.status }}</span></td>
+            <td>{{ transaction.checkout_request_id }}</td>
+            <td>{{ transaction.created_at|date:"Y-m-d H:i" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="empty">No M-Pesa transactions yet.</div>
+  {% endif %}
 </section>
 {% endblock %}

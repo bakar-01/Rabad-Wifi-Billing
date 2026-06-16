@@ -143,6 +143,16 @@ LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'dashboard'
 LOGOUT_REDIRECT_URL = 'home'
 
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
+CELERY_TIMEZONE = TIME_ZONE
+
+MIKROTIK_ENABLED = os.environ.get("MIKROTIK_ENABLED", "false")
+MIKROTIK_HOST = os.environ.get("MIKROTIK_HOST", "192.168.88.1")
+MIKROTIK_USERNAME = os.environ.get("MIKROTIK_USERNAME", "admin")
+MIKROTIK_PASSWORD = os.environ.get("MIKROTIK_PASSWORD", "")
+MIKROTIK_USE_SSL = os.environ.get("MIKROTIK_USE_SSL", "false")
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
