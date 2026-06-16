@@ -31,6 +31,17 @@ class PurchaseForm(forms.Form):
         return phone
 
 
+class ReconnectForm(forms.Form):
+    code = forms.CharField(
+        max_length=80,
+        label="M-Pesa code or WiFi password",
+        widget=forms.TextInput(attrs={"placeholder": "e.g. SIM000004 or WF-F2A4D8"}),
+    )
+
+    def clean_code(self) -> str:
+        return self.cleaned_data["code"].strip().upper()
+
+
 class RegisterForm(UserCreationForm):
     first_name = forms.CharField(max_length=80, label="Name")
     email = forms.EmailField()

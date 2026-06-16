@@ -7,28 +7,37 @@
     <h1>We Sell WiFi access in seconds.</h1>
     <p>Customers choose a package, enter a phone number, and receive an M-Pesa prompt. No account required.</p>
   </div>
-  <form class="purchase-panel" method="post" action="{% url 'buy' %}">
-    {% csrf_token %}
+  <div class="purchase-panel">
     <div class="panel-title">
       <span>Buy package</span>
       <strong>M-Pesa</strong>
     </div>
     <div class="packages">
       {% for package in packages %}
-        <label class="package-card">
-          <input type="radio" name="package" value="{{ package.id }}" {% if forloop.first %}checked{% endif %}>
-          <span class="package-top"><strong>{{ package.name }}</strong><b>KES {{ package.price }}</b></span>
-          <span>{{ package.speed }} / {{ package.duration_hours }} hours / {{ package.profile }}</span>
-          <small>{{ package.description }}</small>
-        </label>
+        <form class="package-card package-card-{{ forloop.counter }}" method="post" action="{% url 'buy' %}">
+          {% csrf_token %}
+          <input type="hidden" name="package" value="{{ package.id }}">
+          <div class="package-top">
+            <span>
+              <strong>{{ package.name }}</strong>
+              <small>{{ package.speed }} / {{ package.profile }}</small>
+            </span>
+            <b>KES {{ package.price }}</b>
+          </div>
+          <div class="package-meta">
+            <span>{{ package.duration_hours }} hours</span>
+            <span>Instant access</span>
+          </div>
+          <p>{{ package.description }}</p>
+          <label>Safaricom phone number
+            <input name="phone" value="{{ form.phone.value|default:'' }}" placeholder="0712 345 678" required>
+          </label>
+          <button class="primary mpesa-button" type="submit">Pay with M-Pesa</button>
+        </form>
       {% endfor %}
     </div>
-    <label>Safaricom phone number
-      <input name="phone" value="{{ form.phone.value|default:'' }}" placeholder="0712 345 678" required>
-    </label>
-    <button class="primary" type="submit">Pay with M-Pesa</button>
     <p class="fineprint">Guest purchases are supported. Sign in only if you want a reusable dashboard.</p>
-  </form>
+  </div>
 </section>
 <section class="bands">
   <div>

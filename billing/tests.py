@@ -129,3 +129,115 @@ class BillingFlowTests(TestCase):
         subscription.refresh_from_db()
         self.assertFalse(subscription.active)
         remove_hotspot_user.assert_called_once_with("254712345678")
+
+    @patch("billing.views.sync_subscription_router_user")
+    def test_reconnect_finds_active_subscription_by_password(self, sync_router):
+        purchase = Purchase.objects.create(
+            package=self.package,
+            phone="254712345678",
+            amount=self.package.price,
+            access_code="WF-ABC123",
+            status=Purchase.STATUS_ACTIVE,
+            expires_at=timezone.now() + timezone.timedelta(hours=1),
+        )
+        subscription = Subscription.objects.create(
+            purchase=purchase,
+            phone_number=purchase.phone,
+            package=self.package,
+            username=purchase.phone,
+            password=purchase.access_code,
+            expires_at=purchase.expires_at,
+            router_user_created=True,
+        )
+        sync_router.return_value = subscription
+
+        response = self.client.post(reverse("reconnect"), {"code": "wf-abc123"})
+
+        self.assertContains(response, "254712345678")
+        self.assertContains(response, "WF-ABC123")
+        self.assertContains(response, 'id="hotspot-login"')
+        self.assertContains(response, "Connect now")
+        sync_router.assert_called_once_with(subscription)
+
+    @patch("billing.views.sync_subscription_router_user")
+    def test_reconnect_finds_active_subscription_by_mpesa_receipt(self, sync_router):
+        purchase = Purchase.objects.create(
+            package=self.package,
+            phone="254712345678",
+            amount=self.package.price,
+            access_code="WF-ABC123",
+            mpesa_receipt="RCP123",
+            status=Purchase.STATUS_ACTIVE,
+            expires_at=timezone.now() + timezone.timedelta(hours=1),
+        )
+        subscription = Subscription.objects.create(
+            purchase=purchase,
+            phone_number=purchase.phone,
+            package=self.package,
+            username=purchase.phone,
+            password=purchase.access_code,
+            expires_at=purchase.expires_at,
+            router_user_created=True,
+        )
+        sync_router.return_value = subscription
+
+        response = self.client.post(reverse("reconnect"), {"code": "rcp123"})
+
+        self.assertContains(response, "WF-ABC123")
+        self.assertContains(response, 'id="hotspot-login"')
+        sync_router.assert_called_once_with(subscription)
+
+    def test_reconnect_rejects_expired_subscription(self):
+        purchase = Purchase.objects.create(
+            package=self.package,
+            phone="254712345678",
+            amount=self.package.price,
+            access_code="WF-OLD123",
+            status=Purchase.STATUS_ACTIVE,
+            expires_at=timezone.now() - timezone.timedelta(minutes=1),
+        )
+        Subscription.objects.create(
+            purchase=purchase,
+            phone_number=purchase.phone,
+            package=self.package,
+            username=purchase.phone,
+            password=purchase.access_code,
+            expires_at=purchase.expires_at,
+        )
+
+        response = self.client.post(reverse("reconnect"), {"code": "WF-OLD123"})
+
+        self.assertContains(response, "This package has expired")
+        self.assertNotContains(response, "Expires")
+
+    def test_reconnect_warns_for_wrong_code(self):
+        response = self.client.post(reverse("reconnect"), {"code": "WRONG-CODE"})
+
+        self.assertContains(response, "incorrect")
+        self.assertNotContains(response, "Connect now")
+
+    @patch("billing.views.sync_subscription_router_user")
+    def test_reconnect_active_subscription_waits_when_router_not_ready(self, sync_router):
+        purchase = Purchase.objects.create(
+            package=self.package,
+            phone="254712345678",
+            amount=self.package.price,
+            access_code="WF-WAIT1",
+            status=Purchase.STATUS_ACTIVE,
+            expires_at=timezone.now() + timezone.timedelta(hours=1),
+        )
+        subscription = Subscription.objects.create(
+            purchase=purchase,
+            phone_number=purchase.phone,
+            package=self.package,
+            username=purchase.phone,
+            password=purchase.access_code,
+            expires_at=purchase.expires_at,
+            router_user_created=False,
+        )
+        sync_router.return_value = subscription
+
+        response = self.client.post(reverse("reconnect"), {"code": "WF-WAIT1"})
+
+        self.assertContains(response, "router is not ready")
+        self.assertNotContains(response, 'id="hotspot-login"')

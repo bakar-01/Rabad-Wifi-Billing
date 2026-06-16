@@ -90,3 +90,18 @@ def deactivate_expired_subscriptions(now=None) -> int:
         subscription.save(update_fields=["active"])
         count += 1
     return count
+
+
+def sync_subscription_router_user(subscription: Subscription) -> Subscription:
+    if subscription.router_user_created:
+        return subscription
+
+    router_result = create_hotspot_user(
+        username=subscription.username,
+        password=subscription.password,
+        profile=subscription.package.profile,
+    )
+    subscription.router_user_created = bool(router_result.get("success"))
+    subscription.router_message = router_result.get("error") or router_result.get("user_id", "")
+    subscription.save(update_fields=["router_user_created", "router_message"])
+    return subscription

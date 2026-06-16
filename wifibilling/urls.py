@@ -21,6 +21,7 @@ from django.urls import path
 urlpatterns = [
     path('', views.home, name='home'),
     path('buy/', views.buy_package, name='buy'),
+    path('reconnect/', views.reconnect, name='reconnect'),
     path('receipt/<int:purchase_id>/', views.receipt, name='receipt'),
     path('dashboard/', views.dashboard, name='dashboard'),
     path('operator/', views.operator_dashboard, name='operator_dashboard'),

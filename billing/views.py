@@ -1,6 +1,7 @@
 import json
 import secrets
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required, user_passes_test
@@ -12,10 +13,10 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
-from .forms import PurchaseForm, RegisterForm
+from .forms import PurchaseForm, ReconnectForm, RegisterForm
 from .models import MpesaTransaction, Package, Purchase, Subscription
 from .mpesa import initiate_stk_push
-from .services import activate_purchase, fail_purchase, record_transaction
+from .services import activate_purchase, fail_purchase, record_transaction, sync_subscription_router_user
 
 
 def access_code() -> str:
@@ -78,6 +79,50 @@ def buy_package(request):
 def receipt(request, purchase_id):
     purchase = get_object_or_404(Purchase.objects.select_related("package"), id=purchase_id)
     return render(request, "receipt.html", {"purchase": purchase})
+
+
+def reconnect(request):
+    subscription = None
+    auto_login = False
+    form = ReconnectForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        code = form.cleaned_data["code"]
+        now = timezone.now()
+        code_filter = (
+            Q(password__iexact=code)
+            | Q(purchase__access_code__iexact=code)
+            | Q(purchase__mpesa_receipt__iexact=code)
+            | Q(purchase__transaction__receipt_number__iexact=code)
+        )
+        matched_subscription = (
+            Subscription.objects.select_related("package", "purchase", "purchase__transaction")
+            .filter(code_filter)
+            .first()
+        )
+        if matched_subscription and matched_subscription.active and matched_subscription.expires_at > now:
+            subscription = sync_subscription_router_user(matched_subscription)
+            if subscription.router_user_created:
+                auto_login = True
+                messages.success(request, "Active package found. Reconnecting you to WiFi now.")
+            else:
+                messages.warning(request, "Your package is active, but the router is not ready yet. Please contact the operator.")
+        elif matched_subscription:
+            matched_subscription.active = False
+            matched_subscription.save(update_fields=["active"])
+            messages.error(request, "This package has expired. Please buy a new plan to reconnect.")
+        else:
+            messages.warning(request, "The M-Pesa code or WiFi password is incorrect. Please check it and try again.")
+
+    return render(
+        request,
+        "reconnect.html",
+        {
+            "form": form,
+            "subscription": subscription,
+            "auto_login": auto_login,
+            "mikrotik_login_url": settings.MIKROTIK_LOGIN_URL,
+        },
+    )
 
 
 @login_required

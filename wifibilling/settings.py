@@ -152,6 +152,7 @@ MIKROTIK_HOST = os.environ.get("MIKROTIK_HOST", "192.168.88.1")
 MIKROTIK_USERNAME = os.environ.get("MIKROTIK_USERNAME", "admin")
 MIKROTIK_PASSWORD = os.environ.get("MIKROTIK_PASSWORD", "")
 MIKROTIK_USE_SSL = os.environ.get("MIKROTIK_USE_SSL", "false")
+MIKROTIK_LOGIN_URL = os.environ.get("MIKROTIK_LOGIN_URL", f"http://{MIKROTIK_HOST}/login")
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

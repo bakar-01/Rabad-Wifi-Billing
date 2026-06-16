@@ -1,0 +1,40 @@
+{% extends "layout.html" %}
+{% block title %}Reconnect{% endblock %}
+{% block content %}
+<section class="auth-shell">
+  <div class="auth-card reconnect-card">
+    <p class="eyebrow">Reconnect</p>
+    <h1>Restore WiFi access</h1>
+    <p>Enter the M-Pesa receipt code or the WiFi password from your receipt.</p>
+    <form method="post">
+      {% csrf_token %}
+      <label>{{ form.code.label }}
+        {{ form.code }}
+      </label>
+      <button class="primary" type="submit">Find active package</button>
+    </form>
+
+    {% if subscription %}
+      <dl class="credential-list">
+        <div><dt>Package</dt><dd>{{ subscription.package.name }}</dd></div>
+        <div><dt>Username</dt><dd>{{ subscription.username }}</dd></div>
+        <div><dt>Password</dt><dd>{{ subscription.password }}</dd></div>
+        <div><dt>Expires</dt><dd>{{ subscription.expires_at|date:"Y-m-d H:i" }}</dd></div>
+        <div><dt>Router</dt><dd>{% if subscription.router_user_created %}Ready{% else %}Pending sync{% endif %}</dd></div>
+      </dl>
+      {% if auto_login %}
+        <form id="hotspot-login" class="hotspot-login" method="post" action="{{ mikrotik_login_url }}">
+          <input type="hidden" name="username" value="{{ subscription.username }}">
+          <input type="hidden" name="password" value="{{ subscription.password }}">
+          <button class="primary" type="submit">Connect now</button>
+        </form>
+        <script>
+          window.addEventListener("load", function () {
+            document.getElementById("hotspot-login").submit();
+          });
+        </script>
+      {% endif %}
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
