@@ -67,3 +67,6 @@ celery -A wifibilling worker -l info
 ```
 
 Schedule `billing.tasks.deactivate_expired_users` with Celery Beat, django-celery-beat, Windows Task Scheduler, or any cron-style scheduler.
+
+implement security measures for users, a user can only create 0ne account using one email address, add email verification for someone who forgets their password and want to retrieve their account, for a user with no account registered send the wifi connection details to their phone number for purposes of reconnection later, make every securing measure work strictly for the system and everything is right for deployment.
+Store user/customer data into the database. 
