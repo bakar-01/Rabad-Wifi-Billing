@@ -1,14 +1,18 @@
 import json
 import secrets
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.contrib.auth.forms import AuthenticationForm
+from django.core.exceptions import PermissionDenied
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Q, Sum
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
@@ -21,6 +25,14 @@ from .services import activate_purchase, fail_purchase, record_transaction, sync
 
 def access_code() -> str:
     return "WF-" + secrets.token_hex(3).upper()
+
+
+def user_can_view_purchase(request, purchase: Purchase) -> bool:
+    if request.user.is_authenticated and (request.user.is_staff or purchase.user_id == request.user.id):
+        return True
+
+    token = request.GET.get("token", "").strip()
+    return bool(token) and secrets.compare_digest(token.upper(), purchase.access_code.upper())
 
 
 def home(request):
@@ -73,11 +85,14 @@ def buy_package(request):
         transaction.save(update_fields=["status", "receipt_number", "result_code", "result_description"])
         activate_purchase(purchase, receipt=transaction.receipt_number)
     messages.success(request, result.get("message", "M-Pesa request sent."))
-    return redirect("receipt", purchase_id=purchase.id)
+    receipt_url = reverse("receipt", args=[purchase.id])
+    return redirect(f"{receipt_url}?{urlencode({'token': purchase.access_code})}")
 
 
 def receipt(request, purchase_id):
     purchase = get_object_or_404(Purchase.objects.select_related("package"), id=purchase_id)
+    if not user_can_view_purchase(request, purchase):
+        raise PermissionDenied("You are not allowed to view this receipt.")
     return render(request, "receipt.html", {"purchase": purchase})
 
 
@@ -176,9 +191,14 @@ def register_view(request):
     if request.method == "POST":
         form = RegisterForm(request.POST)
         if form.is_valid():
-            user = form.save()
-            login(request, user)
-            return redirect("dashboard")
+            try:
+                with transaction.atomic():
+                    user = form.save()
+            except IntegrityError:
+                form.add_error(None, "An account with that email or phone number already exists.")
+            else:
+                login(request, user)
+                return redirect("dashboard")
     else:
         form = RegisterForm()
     return render(request, "register.html", {"form": form})

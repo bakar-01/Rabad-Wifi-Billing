@@ -1,5 +1,5 @@
 from django import forms
-from django.contrib.auth.forms import UserCreationForm
+from django.contrib.auth.forms import PasswordResetForm, UserCreationForm
 from django.contrib.auth.models import User
 
 from .models import CustomerProfile
@@ -42,6 +42,11 @@ class ReconnectForm(forms.Form):
         return self.cleaned_data["code"].strip().upper()
 
 
+class EmailPasswordResetForm(PasswordResetForm):
+    def clean_email(self) -> str:
+        return self.cleaned_data["email"].strip().lower()
+
+
 class RegisterForm(UserCreationForm):
     first_name = forms.CharField(max_length=80, label="Name")
     email = forms.EmailField()
@@ -52,10 +57,13 @@ class RegisterForm(UserCreationForm):
         fields = ["first_name", "email", "phone", "password1", "password2"]
 
     def clean_email(self) -> str:
-        email = self.cleaned_data["email"].lower()
+        email = self.cleaned_data["email"].strip().lower()
         if User.objects.filter(username__iexact=email).exists() or User.objects.filter(email__iexact=email).exists():
             raise forms.ValidationError("That email is already registered.")
         return email
+
+    def clean_first_name(self) -> str:
+        return self.cleaned_data["first_name"].strip()
 
     def clean_phone(self) -> str:
         phone = normalize_phone(self.cleaned_data["phone"])

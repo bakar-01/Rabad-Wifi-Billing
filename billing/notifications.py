@@ -11,11 +11,13 @@ logger = logging.getLogger(__name__)
 def subscription_sms(subscription: Subscription) -> str:
     expires = timezone.localtime(subscription.expires_at).strftime("%d %B %Y %H:%M")
     return (
-        "Payment Received\n\n"
-        f"Package:\n{subscription.package.name}\n\n"
-        f"Amount:\nKSh {subscription.package.price}\n\n"
-        f"Expires:\n{expires}\n\n"
-        "Enjoy your browsing."
+        "Payment Received\n"
+        f"Package: {subscription.package.name}\n"
+        f"Amount: KSh {subscription.package.price}\n"
+        f"Username: {subscription.username}\n"
+        f"Password: {subscription.password}\n"
+        f"Expires: {expires}\n"
+        "Keep this SMS to reconnect later."
     )
 
 
