@@ -18,6 +18,26 @@ class ActivationResult:
     created: bool
 
 
+def router_message(router_result: dict) -> str:
+    return str(router_result.get("error") or router_result.get("user_id") or "")[:255]
+
+
+def provision_subscription_router_user(subscription: Subscription) -> None:
+    try:
+        router_result = create_hotspot_user(
+            username=subscription.username,
+            password=subscription.password,
+            profile=subscription.package.profile,
+        )
+    except Exception as exc:
+        logger.exception("Router provisioning failed for subscription %s", subscription.pk)
+        router_result = {"success": False, "error": f"Router provisioning failed: {exc}"}
+
+    subscription.router_user_created = bool(router_result.get("success"))
+    subscription.router_message = router_message(router_result)
+    subscription.save(update_fields=["router_user_created", "router_message"])
+
+
 def activate_purchase(purchase: Purchase, receipt: str = "") -> ActivationResult:
     """Mark a paid purchase active, create a subscription, and provision MikroTik access."""
     with transaction.atomic():
@@ -38,17 +58,13 @@ def activate_purchase(purchase: Purchase, receipt: str = "") -> ActivationResult
         )
 
     if created or not subscription.router_user_created:
-        router_result = create_hotspot_user(
-            username=subscription.username,
-            password=subscription.password,
-            profile=subscription.package.profile,
-        )
-        subscription.router_user_created = bool(router_result.get("success"))
-        subscription.router_message = router_result.get("error") or router_result.get("user_id", "")
-        subscription.save(update_fields=["router_user_created", "router_message"])
+        provision_subscription_router_user(subscription)
 
     if created:
-        send_subscription_sms(subscription)
+        try:
+            send_subscription_sms(subscription)
+        except Exception:
+            logger.exception("SMS notification failed unexpectedly for subscription %s", subscription.pk)
 
     return ActivationResult(purchase=purchase, subscription=subscription, created=created)
 
@@ -85,7 +101,13 @@ def deactivate_expired_subscriptions(now=None) -> int:
     expired = Subscription.objects.filter(active=True, expires_at__lt=now)
     count = 0
     for subscription in expired:
-        remove_hotspot_user(subscription.username)
+        try:
+            removed = remove_hotspot_user(subscription.username)
+        except Exception:
+            logger.exception("Router cleanup failed for expired subscription %s", subscription.pk)
+            removed = False
+        if not removed:
+            logger.warning("Expired subscription %s was deactivated before router cleanup succeeded.", subscription.pk)
         subscription.active = False
         subscription.save(update_fields=["active"])
         count += 1
@@ -96,12 +118,5 @@ def sync_subscription_router_user(subscription: Subscription) -> Subscription:
     if subscription.router_user_created:
         return subscription
 
-    router_result = create_hotspot_user(
-        username=subscription.username,
-        password=subscription.password,
-        profile=subscription.package.profile,
-    )
-    subscription.router_user_created = bool(router_result.get("success"))
-    subscription.router_message = router_result.get("error") or router_result.get("user_id", "")
-    subscription.save(update_fields=["router_user_created", "router_message"])
+    provision_subscription_router_user(subscription)
     return subscription

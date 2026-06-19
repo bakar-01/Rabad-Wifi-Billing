@@ -1,4 +1,5 @@
 import json
+import logging
 import secrets
 from urllib.parse import urlencode
 
@@ -22,6 +23,8 @@ from .models import MpesaTransaction, Package, Purchase, Subscription
 from .mpesa import initiate_stk_push
 from .services import activate_purchase, fail_purchase, record_transaction, sync_subscription_router_user
 
+logger = logging.getLogger(__name__)
+
 
 def access_code() -> str:
     return "WF-" + secrets.token_hex(3).upper()
@@ -33,6 +36,22 @@ def user_can_view_purchase(request, purchase: Purchase) -> bool:
 
     token = request.GET.get("token", "").strip()
     return bool(token) and secrets.compare_digest(token.upper(), purchase.access_code.upper())
+
+
+def safe_int(value, default: int = -1) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def callback_object(payload: dict, *keys: str) -> dict:
+    value = payload
+    for key in keys:
+        if not isinstance(value, dict):
+            return {}
+        value = value.get(key, {})
+    return value if isinstance(value, dict) else {}
 
 
 def home(request):
@@ -59,7 +78,12 @@ def buy_package(request):
         amount=package.price,
         access_code=access_code(),
     )
-    result = initiate_stk_push(purchase.phone, purchase.amount, purchase.id)
+    try:
+        result = initiate_stk_push(purchase.phone, purchase.amount, purchase.id)
+    except Exception:
+        logger.exception("Unexpected M-Pesa initiation failure for purchase %s", purchase.pk)
+        result = {"ok": False, "message": "M-Pesa request failed. Please try again."}
+
     purchase.checkout_request_id = result.get("checkout_request_id") or f"LOCAL-{purchase.id}"
     purchase.save(update_fields=["checkout_request_id"])
     record_transaction(
@@ -70,21 +94,31 @@ def buy_package(request):
         merchant_request_id=result.get("merchant_request_id", ""),
     )
 
+    activation_failed = False
     if not result.get("ok"):
         fail_purchase(purchase, result.get("message", "M-Pesa request failed."))
-        transaction = purchase.transaction
-        transaction.status = MpesaTransaction.STATUS_FAILED
-        transaction.result_description = result.get("message", "M-Pesa request failed.")
-        transaction.save(update_fields=["status", "result_description"])
+        mpesa_transaction = purchase.transaction
+        mpesa_transaction.status = MpesaTransaction.STATUS_FAILED
+        mpesa_transaction.result_description = result.get("message", "M-Pesa request failed.")
+        mpesa_transaction.save(update_fields=["status", "result_description"])
     elif result.get("simulated"):
-        transaction = purchase.transaction
-        transaction.status = MpesaTransaction.STATUS_SUCCESS
-        transaction.receipt_number = f"SIM{purchase.id:06d}"
-        transaction.result_code = 0
-        transaction.result_description = "Simulated payment accepted"
-        transaction.save(update_fields=["status", "receipt_number", "result_code", "result_description"])
-        activate_purchase(purchase, receipt=transaction.receipt_number)
-    messages.success(request, result.get("message", "M-Pesa request sent."))
+        mpesa_transaction = purchase.transaction
+        mpesa_transaction.status = MpesaTransaction.STATUS_SUCCESS
+        mpesa_transaction.receipt_number = f"SIM{purchase.id:06d}"
+        mpesa_transaction.result_code = 0
+        mpesa_transaction.result_description = "Simulated payment accepted"
+        mpesa_transaction.save(update_fields=["status", "receipt_number", "result_code", "result_description"])
+        try:
+            activate_purchase(purchase, receipt=mpesa_transaction.receipt_number)
+        except Exception:
+            logger.exception("Simulated purchase activation failed for purchase %s", purchase.pk)
+            fail_purchase(purchase, "Activation failed after simulated payment.")
+            activation_failed = True
+            messages.error(request, "Payment was accepted, but WiFi activation failed. Please contact the operator.")
+    if result.get("ok") and not activation_failed:
+        messages.success(request, result.get("message", "M-Pesa request sent."))
+    elif not activation_failed:
+        messages.error(request, result.get("message", "M-Pesa request failed."))
     receipt_url = reverse("receipt", args=[purchase.id])
     return redirect(f"{receipt_url}?{urlencode({'token': purchase.access_code})}")
 
@@ -115,7 +149,11 @@ def reconnect(request):
             .first()
         )
         if matched_subscription and matched_subscription.active and matched_subscription.expires_at > now:
-            subscription = sync_subscription_router_user(matched_subscription)
+            try:
+                subscription = sync_subscription_router_user(matched_subscription)
+            except Exception:
+                logger.exception("Router sync failed during reconnect for subscription %s", matched_subscription.pk)
+                subscription = matched_subscription
             if subscription.router_user_created:
                 auto_login = True
                 messages.success(request, "Active package found. Reconnecting you to WiFi now.")
@@ -208,37 +246,53 @@ def register_view(request):
 @require_POST
 def mpesa_callback(request):
     try:
-        payload = json.loads(request.body.decode() or "{}")
-    except json.JSONDecodeError:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except (UnicodeDecodeError, json.JSONDecodeError):
         return JsonResponse({"ResultCode": 1, "ResultDesc": "Invalid JSON"}, status=400)
+    if not isinstance(payload, dict):
+        return JsonResponse({"ResultCode": 1, "ResultDesc": "Invalid callback payload"}, status=400)
 
-    stk = payload.get("Body", {}).get("stkCallback", {})
+    stk = callback_object(payload, "Body", "stkCallback")
     checkout = stk.get("CheckoutRequestID")
     merchant = stk.get("MerchantRequestID", "")
-    result_code = int(stk.get("ResultCode", -1))
+    result_code = safe_int(stk.get("ResultCode"))
     result_description = stk.get("ResultDesc", "")
     metadata = {}
-    for item in stk.get("CallbackMetadata", {}).get("Item", []):
-        metadata[item.get("Name")] = item.get("Value")
+    callback_metadata = callback_object(stk, "CallbackMetadata")
+    items = callback_metadata.get("Item", [])
+    if not isinstance(items, list):
+        items = []
+    for item in items:
+        if isinstance(item, dict) and item.get("Name"):
+            metadata[item.get("Name")] = item.get("Value")
+
+    if not checkout:
+        logger.warning("M-Pesa callback rejected because CheckoutRequestID was missing: %s", payload)
+        return JsonResponse({"ResultCode": 1, "ResultDesc": "Missing CheckoutRequestID"}, status=400)
 
     purchase = Purchase.objects.filter(checkout_request_id=checkout).select_related("package").first()
-    transaction = MpesaTransaction.objects.filter(checkout_request_id=checkout).first()
-    if transaction:
-        transaction.merchant_request_id = merchant or transaction.merchant_request_id
-        transaction.result_code = result_code
-        transaction.result_description = result_description
-        transaction.raw_callback = payload
-        transaction.receipt_number = str(metadata.get("MpesaReceiptNumber") or transaction.receipt_number or "")
-        transaction.status = MpesaTransaction.STATUS_SUCCESS if result_code == 0 else MpesaTransaction.STATUS_FAILED
+    mpesa_transaction = MpesaTransaction.objects.filter(checkout_request_id=checkout).first()
+    if mpesa_transaction:
+        mpesa_transaction.merchant_request_id = merchant or mpesa_transaction.merchant_request_id
+        mpesa_transaction.result_code = result_code
+        mpesa_transaction.result_description = result_description
+        mpesa_transaction.raw_callback = payload
+        mpesa_transaction.receipt_number = str(metadata.get("MpesaReceiptNumber") or mpesa_transaction.receipt_number or "")
+        mpesa_transaction.status = MpesaTransaction.STATUS_SUCCESS if result_code == 0 else MpesaTransaction.STATUS_FAILED
         if metadata.get("Amount"):
-            transaction.amount = metadata["Amount"]
+            mpesa_transaction.amount = metadata["Amount"]
         if metadata.get("PhoneNumber"):
-            transaction.phone_number = str(metadata["PhoneNumber"])
-        transaction.save()
+            mpesa_transaction.phone_number = str(metadata["PhoneNumber"])
+        mpesa_transaction.save()
+    else:
+        logger.warning("M-Pesa callback received for unknown transaction: %s", checkout)
 
     if purchase and result_code == 0:
         receipt = str(metadata.get("MpesaReceiptNumber") or "")
-        activate_purchase(purchase, receipt=receipt)
+        try:
+            activate_purchase(purchase, receipt=receipt)
+        except Exception:
+            logger.exception("Failed to activate purchase %s from M-Pesa callback", purchase.pk)
     elif purchase:
         fail_purchase(purchase, result_description)
 

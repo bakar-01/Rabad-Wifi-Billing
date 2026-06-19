@@ -1,9 +1,16 @@
 import base64
 import datetime as dt
 import json
+import logging
 import os
 import urllib.error
 import urllib.request
+
+logger = logging.getLogger(__name__)
+
+
+class MpesaClientError(Exception):
+    """Raised when Daraja returns an unusable response."""
 
 
 def env_value(key: str, default: str = "") -> str:
@@ -44,6 +51,23 @@ def daraja_error_message(exc: urllib.error.HTTPError) -> str:
     return f"HTTP Error {exc.code}: {message}"
 
 
+def url_error_message(exc: urllib.error.URLError) -> str:
+    reason = getattr(exc, "reason", exc)
+    return str(reason)
+
+
+def response_json(response) -> dict:
+    body = response.read().decode("utf-8", errors="replace")
+    try:
+        data = json.loads(body or "{}")
+    except json.JSONDecodeError as exc:
+        raise MpesaClientError("M-Pesa returned an invalid JSON response.") from exc
+
+    if not isinstance(data, dict):
+        raise MpesaClientError("M-Pesa returned an unexpected response.")
+    return data
+
+
 def stk_configuration_error() -> str:
     env = env_value("MPESA_ENV", "sandbox")
     shortcode = env_value("MPESA_SHORTCODE")
@@ -68,8 +92,18 @@ def token() -> str:
         f"{base_url()}/oauth/v1/generate?grant_type=client_credentials",
         headers={"Authorization": f"Basic {encoded}", "Accept": "application/json"},
     )
-    with urllib.request.urlopen(request, timeout=20) as response:
-        return json.loads(response.read().decode())["access_token"]
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            data = response_json(response)
+    except urllib.error.HTTPError as exc:
+        raise MpesaClientError(daraja_error_message(exc)) from exc
+    except urllib.error.URLError as exc:
+        raise MpesaClientError(f"Network error: {url_error_message(exc)}") from exc
+
+    access_token = data.get("access_token")
+    if not access_token:
+        raise MpesaClientError("OAuth response did not include an access token.")
+    return access_token
 
 
 def initiate_stk_push(phone: str, amount: int, purchase_id: int) -> dict:
@@ -86,6 +120,12 @@ def initiate_stk_push(phone: str, amount: int, purchase_id: int) -> dict:
     config_error = stk_configuration_error()
     if config_error:
         return {"ok": False, "message": f"M-Pesa request failed: {config_error}"}
+
+    try:
+        access_token = token()
+    except MpesaClientError as exc:
+        logger.warning("M-Pesa OAuth failed for purchase %s: %s", purchase_id, exc)
+        return {"ok": False, "message": f"M-Pesa request failed: {exc}"}
 
     timestamp = dt.datetime.now().strftime("%Y%m%d%H%M%S")
     shortcode = env_value("MPESA_SHORTCODE")
@@ -107,18 +147,20 @@ def initiate_stk_push(phone: str, amount: int, purchase_id: int) -> dict:
         f"{base_url()}/mpesa/stkpush/v1/processrequest",
         data=json.dumps(payload).encode(),
         method="POST",
-        headers={"Authorization": f"Bearer {token()}", "Content-Type": "application/json", "Accept": "application/json"},
+        headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json", "Accept": "application/json"},
     )
     try:
         with urllib.request.urlopen(request, timeout=25) as response:
-            data = json.loads(response.read().decode())
+            data = response_json(response)
     except urllib.error.HTTPError as exc:
         return {"ok": False, "message": f"M-Pesa request failed: {daraja_error_message(exc)}"}
     except urllib.error.URLError as exc:
+        return {"ok": False, "message": f"M-Pesa request failed: {url_error_message(exc)}"}
+    except MpesaClientError as exc:
         return {"ok": False, "message": f"M-Pesa request failed: {exc}"}
 
     return {
-        "ok": data.get("ResponseCode") == "0",
+        "ok": str(data.get("ResponseCode")) == "0",
         "checkout_request_id": data.get("CheckoutRequestID", ""),
         "merchant_request_id": data.get("MerchantRequestID", ""),
         "message": data.get("CustomerMessage") or data.get("errorMessage") or "M-Pesa request sent.",

@@ -11,9 +11,9 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .models import MpesaTransaction, Package, Purchase, Subscription
-from .mpesa import initiate_stk_push
+from .mpesa import MpesaClientError, initiate_stk_push
 from .notifications import subscription_sms
-from .services import deactivate_expired_subscriptions
+from .services import activate_purchase, deactivate_expired_subscriptions
 
 
 class BillingFlowTests(TestCase):
@@ -34,6 +34,24 @@ class BillingFlowTests(TestCase):
         self.assertTrue(result["ok"])
         self.assertTrue(result["simulated"])
         self.assertEqual(result["checkout_request_id"], "SIM-99")
+
+    def test_mpesa_oauth_error_returns_failure_result(self):
+        mpesa_env = {
+            "MPESA_SIMULATE_PAYMENTS": "false",
+            "MPESA_CONSUMER_KEY": "key",
+            "MPESA_CONSUMER_SECRET": "secret",
+            "MPESA_SHORTCODE": "123456",
+            "MPESA_PASSKEY": "x" * 120,
+            "MPESA_CALLBACK_URL": "https://example.com/mpesa/callback/",
+        }
+        with patch.dict(os.environ, mpesa_env), patch(
+            "billing.mpesa.token",
+            side_effect=MpesaClientError("Network error: timeout"),
+        ), self.assertLogs("billing.mpesa", level="WARNING"):
+            result = initiate_stk_push("254712345678", 20, 99)
+
+        self.assertFalse(result["ok"])
+        self.assertIn("Network error: timeout", result["message"])
 
     def test_register_rejects_duplicate_email_case_insensitive(self):
         User = get_user_model()
@@ -113,6 +131,26 @@ class BillingFlowTests(TestCase):
         self.assertEqual(subscription.username, "254712345678")
         self.assertEqual(subscription.password, purchase.access_code)
         hotspot_user.assert_called_once_with(username="254712345678", password=purchase.access_code, profile="5Mbps")
+
+    @patch("billing.services.create_hotspot_user", side_effect=RuntimeError("router offline"))
+    def test_purchase_activation_records_router_failure_without_raising(self, hotspot_user):
+        purchase = Purchase.objects.create(
+            package=self.package,
+            phone="254712345678",
+            amount=self.package.price,
+            access_code="WF-ROUTER",
+        )
+
+        with self.assertLogs("billing.services", level="ERROR"):
+            result = activate_purchase(purchase, receipt="RCP-ROUTER")
+
+        purchase.refresh_from_db()
+        subscription = result.subscription
+        subscription.refresh_from_db()
+        self.assertEqual(purchase.status, Purchase.STATUS_ACTIVE)
+        self.assertFalse(subscription.router_user_created)
+        self.assertIn("Router provisioning failed", subscription.router_message)
+        hotspot_user.assert_called_once()
 
     def test_subscription_sms_contains_guest_reconnect_credentials(self):
         purchase = Purchase.objects.create(
@@ -217,6 +255,93 @@ class BillingFlowTests(TestCase):
         self.assertEqual(purchase.mpesa_receipt, "RCP123")
         self.assertEqual(transaction.status, MpesaTransaction.STATUS_SUCCESS)
         self.assertTrue(Subscription.objects.filter(purchase=purchase, active=True).exists())
+
+    def test_mpesa_callback_rejects_invalid_json(self):
+        response = self.client.post(
+            reverse("mpesa_callback"),
+            data="{not-json",
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["ResultDesc"], "Invalid JSON")
+
+    def test_mpesa_callback_handles_invalid_result_code(self):
+        purchase = Purchase.objects.create(
+            package=self.package,
+            phone="254712345678",
+            amount=self.package.price,
+            access_code="WF-BADCODE",
+            checkout_request_id="ws_CO_BAD",
+        )
+        MpesaTransaction.objects.create(
+            purchase=purchase,
+            phone_number=purchase.phone,
+            amount=purchase.amount,
+            checkout_request_id=purchase.checkout_request_id,
+        )
+        payload = {
+            "Body": {
+                "stkCallback": {
+                    "CheckoutRequestID": "ws_CO_BAD",
+                    "ResultCode": "not-a-number",
+                    "ResultDesc": "Could not process payment",
+                    "CallbackMetadata": {"Item": "unexpected"},
+                }
+            }
+        }
+
+        response = self.client.post(
+            reverse("mpesa_callback"),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        purchase.refresh_from_db()
+        transaction = purchase.transaction
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(purchase.status, Purchase.STATUS_FAILED)
+        self.assertEqual(transaction.result_code, -1)
+        self.assertEqual(transaction.status, MpesaTransaction.STATUS_FAILED)
+
+    @patch("billing.views.activate_purchase", side_effect=RuntimeError("activation failed"))
+    def test_mpesa_callback_accepts_activation_errors(self, activate_purchase_mock):
+        purchase = Purchase.objects.create(
+            package=self.package,
+            phone="254712345678",
+            amount=self.package.price,
+            access_code="WF-ACTERR",
+            checkout_request_id="ws_CO_ACTERR",
+        )
+        MpesaTransaction.objects.create(
+            purchase=purchase,
+            phone_number=purchase.phone,
+            amount=purchase.amount,
+            checkout_request_id=purchase.checkout_request_id,
+        )
+        payload = {
+            "Body": {
+                "stkCallback": {
+                    "CheckoutRequestID": "ws_CO_ACTERR",
+                    "ResultCode": 0,
+                    "ResultDesc": "Success",
+                    "CallbackMetadata": {"Item": [{"Name": "MpesaReceiptNumber", "Value": "RCPERR"}]},
+                }
+            }
+        }
+
+        with self.assertLogs("billing.views", level="ERROR"):
+            response = self.client.post(
+                reverse("mpesa_callback"),
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+
+        transaction = MpesaTransaction.objects.get(purchase=purchase)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["ResultDesc"], "Accepted")
+        self.assertEqual(transaction.status, MpesaTransaction.STATUS_SUCCESS)
+        activate_purchase_mock.assert_called_once()
 
     @patch("billing.services.remove_hotspot_user")
     def test_deactivate_expired_subscriptions_removes_router_user(self, remove_hotspot_user):
@@ -354,3 +479,31 @@ class BillingFlowTests(TestCase):
 
         self.assertContains(response, "router is not ready")
         self.assertNotContains(response, 'id="hotspot-login"')
+
+    @patch("billing.views.sync_subscription_router_user", side_effect=RuntimeError("router unavailable"))
+    def test_reconnect_handles_router_sync_error(self, sync_router):
+        purchase = Purchase.objects.create(
+            package=self.package,
+            phone="254712345678",
+            amount=self.package.price,
+            access_code="WF-SYNCERR",
+            status=Purchase.STATUS_ACTIVE,
+            expires_at=timezone.now() + timezone.timedelta(hours=1),
+        )
+        subscription = Subscription.objects.create(
+            purchase=purchase,
+            phone_number=purchase.phone,
+            package=self.package,
+            username=purchase.phone,
+            password=purchase.access_code,
+            expires_at=purchase.expires_at,
+            router_user_created=False,
+        )
+
+        with self.assertLogs("billing.views", level="ERROR"):
+            response = self.client.post(reverse("reconnect"), {"code": "WF-SYNCERR"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "router is not ready")
+        self.assertContains(response, subscription.password)
+        sync_router.assert_called_once_with(subscription)

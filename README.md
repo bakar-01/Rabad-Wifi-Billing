@@ -30,7 +30,7 @@ python manage.py runserver
 Seeded admin:
 
 - Email: `admin@wifi.local`
-- Password: `admin123`
+- Password: ``
 
 ## Main URLs
 
